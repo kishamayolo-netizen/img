@@ -9,15 +9,13 @@ const execAsync = promisify(exec);
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
-const OUTPUT_DIR = '/tmp/outputs'; // Persistent across restarts
+const OUTPUT_DIR = '/tmp/outputs';
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-// Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ImgnAI Generator Running', time: new Date().toISOString() });
 });
 
-// Generate endpoint
 app.post('/generate', async (req, res) => {
   const { prompt = 'a cat', model = 1, quality = 1, ratio = 1 } = req.body;
 
@@ -28,14 +26,14 @@ app.post('/generate', async (req, res) => {
   const cmd = `node reverse.mjs --prompt="${prompt}" --model=${model} --quality=${quality} --ratio=${ratio}`;
   
   try {
-    console.log('Starting generation:', { prompt, model, quality, ratio });
-    const { stdout, stderr } = await execAsync(cmd, { timeout: 300000 }); // 5 min max
+    console.log('Starting generation...');
+    const { stdout } = await execAsync(cmd, { timeout: 600000 }); // 10 MINUTES
 
     const images = fs.readdirSync(OUTPUT_DIR)
       .filter(f => f.endsWith('.jpeg'))
       .map(f => ({
         name: f,
-        url: `https://your-app.onrender.com/output/${f}`
+        url: `https://img-0sp1.onrender.com/output/${f}`
       }));
 
     res.json({
@@ -45,12 +43,11 @@ app.post('/generate', async (req, res) => {
       log: stdout
     });
   } catch (err) {
-    console.error('Generation failed:', err);
+    console.error('Generation failed:', err.message);
     res.status(500).json({ error: err.message || 'Generation failed' });
   }
 });
 
-// Serve generated images
 app.use('/output', express.static(OUTPUT_DIR));
 
 const PORT = process.env.PORT || 3000;
