@@ -4,7 +4,8 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "echo 'Chrome path set to $CHROME_BIN'"
   },
   "dependencies": {
     "puppeteer-real-browser": "^1.2.7",
@@ -13,5 +14,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "puppeteer": {
+    "executablePath": "/usr/bin/google-chrome-stable"
   }
 }
