@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-# Install Chrome dependencies (lightweight for 512 MB RAM)
+# === INSTALL SYSTEM DEPENDENCIES + gnupg (REQUIRED) ===
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -36,25 +36,27 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     wget \
     xdg-utils \
+    gnupg \  # THIS WAS MISSING
     && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome Stable
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
+# === INSTALL GOOGLE CHROME STABLE ===
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update \
     && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev --no-optional
-
-COPY . .
-
-# Fix Chrome path for Puppeteer
+# === SET CHROME PATH ===
 ENV CHROME_BIN=/usr/bin/google-chrome-stable
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# === APP SETUP ===
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY . .
 
 EXPOSE 3000
 CMD ["npm", "start"]
