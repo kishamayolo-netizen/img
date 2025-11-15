@@ -46,25 +46,12 @@ async function setupAuthenticatedPage() {
   console.log(`Using Chrome: ${chromePath}`);
 
   const { page, browser } = await connect({
-    headless: 'new', // Modern headless (faster, lighter)
-    executablePath: chromePath, // EXPLICIT PATH
+    headless: 'new',
+    executablePath: chromePath,
     turnstile: true,
     userDataDir: PROFILE_DIR,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process',
-      '--disable-gpu',
-      '--single-process',
-      '--no-zygote',
-      '--disable-extensions',
-      '--disable-plugins',
-      '--disable-images', // Save RAM
-      '--disable-javascript', // Optional: speed up login
-      '--blink-settings=imagesEnabled=false'
-    ]
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    timeout: 180000  // 3 MINUTES TO CONNECT
   });
 
   await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36');
