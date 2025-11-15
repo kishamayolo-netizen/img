@@ -8,7 +8,7 @@ const BASE_URL = 'https://app.imgnai.com/services/webappms';
 const LOGIN_URL = 'https://app.imgnai.com/login';
 const GENERATE_URL = 'https://app.imgnai.com/generate';
 const IMAGE_BASE_URL = 'https://wasmall.imgnai.com/';
-const PROFILE_DIR = '/tmp/imgnai-profile'; // Use /tmp
+const PROFILE_DIR = '/tmp/imgnai-profile'; // Render: /tmp is persistent
 const OUTPUT_DIR = '/tmp/outputs';
 
 const USERNAME = 'imgnai69';
@@ -23,6 +23,7 @@ const API_MAPPINGS = {
 const wait = ms => new Promise(r => setTimeout(r, ms));
 function getUniquePrefix() { return Date.now().toString(36); }
 
+// === DOWNLOAD IMAGE ===
 async function downloadImage(url, filename) {
   try {
     const r = await fetch(url);
@@ -37,10 +38,16 @@ async function downloadImage(url, filename) {
   }
 }
 
+// === AUTHENTICATED PAGE WITH EXPLICIT CHROME PATH ===
 async function setupAuthenticatedPage() {
-  console.log('Launching headless browser...');
+  console.log('Launching headless browser with Chrome path...');
+  
+  const chromePath = process.env.CHROME_BIN || '/usr/bin/google-chrome-stable';
+  console.log(`Using Chrome: ${chromePath}`);
+
   const { page, browser } = await connect({
-    headless: 'new',
+    headless: 'new', // Modern headless (faster, lighter)
+    executablePath: chromePath, // EXPLICIT PATH
     turnstile: true,
     userDataDir: PROFILE_DIR,
     args: [
@@ -51,25 +58,34 @@ async function setupAuthenticatedPage() {
       '--disable-features=IsolateOrigins,site-per-process',
       '--disable-gpu',
       '--single-process',
-      '--no-zygote'
+      '--no-zygote',
+      '--disable-extensions',
+      '--disable-plugins',
+      '--disable-images', // Save RAM
+      '--disable-javascript', // Optional: speed up login
+      '--blink-settings=imagesEnabled=false'
     ]
   });
 
-  await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36');
+  await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0 Safari/537.36');
   await page.goto(LOGIN_URL, { waitUntil: 'networkidle0', timeout: 180000 });
 
+  // Check for existing login
   const auth = (await page.cookies()).find(c => c.name === 'authentication');
   if (auth) {
     try {
       const obj = JSON.parse(decodeURIComponent(auth.value));
       if (obj.state?.token) {
-        console.log(`Logged in: ${obj.state.username}`);
+        console.log(`Already logged in: ${obj.state.username}`);
         await page.goto(GENERATE_URL, { waitUntil: 'networkidle0' });
         return { page, browser, jwt: obj.state.token };
       }
-    } catch {}
+    } catch (e) {
+      console.warn('Failed to parse auth cookie, logging in...');
+    }
   }
 
+  // Login
   console.log('Logging in...');
   await page.waitForSelector('input[name="username"]', { timeout: 10000 });
   await page.type('input[name="username"]', USERNAME);
@@ -86,11 +102,14 @@ async function setupAuthenticatedPage() {
   return { page, browser, jwt: authObj.state.token };
 }
 
+// === GENERATE IMAGES ===
 async function autoGenerate(settings) {
   const runId = getUniquePrefix();
   const { page, browser, jwt } = await setupAuthenticatedPage();
 
   try {
+    // Create session
+    console.log('Creating session...');
     const sessionUuid = await page.evaluate(async (url, jwt) => {
       const r = await fetch(url, {
         method: 'POST',
@@ -101,6 +120,10 @@ async function autoGenerate(settings) {
       return text.trim();
     }, `${BASE_URL}/api/generate-session`, jwt);
 
+    if (!sessionUuid || sessionUuid.length < 8) throw new Error(`Invalid session: ${sessionUuid}`);
+    console.log(`Session UUID: ${sessionUuid}`);
+
+    // Build batch
     const batch = Array(4).fill().map((_, i) => ({
       nsfw: false,
       profile: settings.model.id,
@@ -121,6 +144,7 @@ async function autoGenerate(settings) {
 
     const payload = { session_uuid: sessionUuid, use_credits: false, use_assistant: false, generate_image_list: batch };
 
+    // Submit batch
     const jobIds = await page.evaluate(async (url, payload, jwt) => {
       const r = await fetch(url, {
         method: 'POST',
@@ -138,8 +162,11 @@ async function autoGenerate(settings) {
 
     console.log(`Started ${jobIds.length} jobs`);
 
+    // Poll for completion
     const urls = [];
     for (const id of jobIds) {
+      console.log(`Polling job: ${id}`);
+      let completed = false;
       for (let i = 0; i < 180; i++) {
         await wait(2000);
         try {
@@ -151,27 +178,35 @@ async function autoGenerate(settings) {
               clearTimeout(timeoutId);
               if (!r.ok) return null;
               return await r.json();
-            } catch { clearTimeout(timeoutId); throw new Error('Fetch failed'); }
+            } catch {
+              clearTimeout(timeoutId);
+              return null;
+            }
           }, `${BASE_URL}/api/generate-image/uuid/${id}`, jwt);
 
           if (data?.response?.image_url) {
             const fullUrl = IMAGE_BASE_URL + data.response.image_url;
             urls.push(fullUrl);
-            console.log(`Completed ${id}`);
+            console.log(`Completed ${id}: ${fullUrl}`);
+            completed = true;
             break;
           }
         } catch (e) {
           if (e.name === 'AbortError') continue;
+          console.error(`Poll error: ${e.message}`);
         }
       }
+      if (!completed) console.warn(`Job ${id} timed out`);
     }
 
+    // Download images
+    if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
     let saved = 0;
     for (let i = 0; i < urls.length; i++) {
       const filename = path.join(OUTPUT_DIR, `${runId}_${i + 1}.jpeg`);
       if (await downloadImage(urls[i], filename)) saved++;
     }
-    console.log(`SUCCESS: ${saved}/${urls.length} images saved`);
+    console.log(`\nSUCCESS: ${saved}/${urls.length} images saved in ${OUTPUT_DIR}`);
 
   } catch (e) {
     console.error('Generation failed:', e.message);
@@ -180,9 +215,9 @@ async function autoGenerate(settings) {
   }
 }
 
-// CLI Args
+// === CLI ARGUMENTS ===
 const args = process.argv.slice(2);
-const getArg = (flag) => args.find(a => a.startsWith(flag))?.split('=')[1];
+const getArg = (flag) => args.find(a => a.startsWith(flag))?.split('=')[1] || null;
 
 const settings = {
   prompt: getArg('--prompt') || 'a cat',
@@ -191,11 +226,13 @@ const settings = {
   aspectRatio: API_MAPPINGS.ASPECT_RATIO[parseInt(getArg('--ratio') || 1)]
 };
 
+// === RUN ===
 (async () => {
   try {
+    if (!fs.existsSync(PROFILE_DIR)) fs.mkdirSync(PROFILE_DIR);
     await autoGenerate(settings);
   } catch (e) {
-    console.error('Startup failed:', e);
+    console.error('Startup failed:', e.message);
     process.exit(1);
   }
 })();
