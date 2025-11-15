@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: imgnai-generator
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: node server.js
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
