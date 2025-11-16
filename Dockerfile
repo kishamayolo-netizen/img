@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-# Install Chrome + ALL Puppeteer deps (fixes dbus/libnss3)
+# Install Chrome + ALL Puppeteer deps
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -37,9 +37,9 @@ RUN apt-get update && apt-get install -y \
     wget \
     xdg-utils \
     gnupg \
-    libdrm2 \  # NEW: For GPU/Chrome
-    libxkbcommon0 \  # NEW: For keyboard
-    libatspi2.0-0 && \  # NEW: For accessibility
+    libdrm2 \
+    libxkbcommon0 \
+    libatspi2.0-0 && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome Stable
