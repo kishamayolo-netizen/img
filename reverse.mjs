@@ -38,7 +38,7 @@ async function downloadImage(url, filename) {
 }
 
 async function setupAuthenticatedPage() {
-  console.log('Launching headless browser with extended timeout...');
+  console.log('Launching browser...');
   const chromePath = process.env.CHROME_BIN || '/usr/bin/google-chrome-stable';
   console.log(`Chrome path: ${chromePath}`);
 
@@ -47,20 +47,21 @@ async function setupAuthenticatedPage() {
     executablePath: chromePath,
     turnstile: true,
     userDataDir: PROFILE_DIR,
-    timeout: 180000,  // 3 MINUTES TO CONNECT (FIXES SOCKET HANG UP)
+    timeout: 180000,  // 3 min connect timeout
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
+      '--disable-dev-shm-usage',  // FIXED: Shared memory for low RAM
       '--disable-gpu',
       '--single-process',
       '--no-zygote',
       '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process'
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--memory-pressure-off',  // FIXED: Low RAM fix
+      '--max_old_space_size=128'  // FIXED: Limit Node heap
     ]
   });
 
-  console.log('Browser launched, navigating to login...');
   await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36');
   await page.goto(LOGIN_URL, { waitUntil: 'networkidle0', timeout: 180000 });
 
@@ -73,9 +74,7 @@ async function setupAuthenticatedPage() {
         await page.goto(GENERATE_URL, { waitUntil: 'networkidle0' });
         return { page, browser, jwt: obj.state.token };
       }
-    } catch (e) {
-      console.warn('Invalid auth cookie, logging in...');
-    }
+    } catch {}
   }
 
   console.log('Logging in...');
@@ -175,7 +174,7 @@ async function autoGenerate(settings) {
           if (data?.response?.image_url) {
             const fullUrl = IMAGE_BASE_URL + data.response.image_url;
             urls.push(fullUrl);
-            console.log(`Completed ${id}`);
+            console.log(`Completed ${id}: ${fullUrl}`);
             completed = true;
             break;
           }
@@ -193,7 +192,7 @@ async function autoGenerate(settings) {
       const filename = path.join(OUTPUT_DIR, `${runId}_${i + 1}.jpeg`);
       if (await downloadImage(urls[i], filename)) saved++;
     }
-    console.log(`\nSUCCESS: ${saved}/${urls.length} images saved in ${OUTPUT_DIR}`);
+    console.log(`\nSUCCESS: ${saved}/${urls.length} images saved`);
 
   } catch (e) {
     console.error('Generation failed:', e.message);
